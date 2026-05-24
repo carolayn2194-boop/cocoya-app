@@ -1,0 +1,15 @@
+# Base de datos
+*.db
+*.sqlite
+*.sqlite3
+
+# Archivos privados
+.env
+
+# Imágenes privadas
+assets/telas/
+assets/comprobantes/
+
+# Python
+__pycache__/
+*.pyc
