@@ -4,7 +4,7 @@ import os
 import uuid
 from sqlalchemy import text
 
-# Importamos la configuración desde tu base de datos corregida
+# Importamos la configuración desde tu base de datos
 from database.db import Pedido, session, engine
 
 
@@ -80,6 +80,10 @@ def mostrar_pedidos():
 
     st.divider()
 
+    # Inicializamos una bandera segura para evitar el "Enter" accidental
+    if "clic_guardar" not in st.session_state:
+        st.session_state.clic_guardar = False
+
     with st.form("formulario_pedido", clear_on_submit=True):
         st.subheader("Información del Cliente")
         col1, col2 = st.columns(2)
@@ -150,10 +154,14 @@ def mostrar_pedidos():
         st.subheader("📝 Detalles Adicionales")
         descripcion = st.text_area("Descripción, especificaciones o notas del pedido")
 
-        # Control Maestro: NADA pasa a la base de datos si no se activa esta variable estrictamente
-        guardar = st.form_submit_button("Guardar Pedido")
+        # El botón nativo del formulario cambia la bandera
+        if st.form_submit_button("Guardar Pedido"):
+            st.session_state.clic_guardar = True
 
-        if guardar:
+        # BLINDAJE DE SEGURIDAD: Solo si el usuario hizo clic real en el botón se procesa el código
+        if st.session_state.clic_guardar:
+            st.session_state.clic_guardar = False # Reseteamos de inmediato la bandera
+
             faltantes = []
             if not cliente.strip(): faltantes.append("Cliente")
             if not telefono.strip(): faltantes.append("Teléfono")
@@ -181,7 +189,6 @@ def mostrar_pedidos():
             estado_pago = "Cancelado" if saldo == 0 else ("Abonado" if abono > 0 else "Pendiente")
             zona = clasificar_zona(provincia) if provincia.strip() != "" else "Pendiente"
 
-            # Guardado correcto y físico de los archivos de tela
             rutas_imagenes = []
             if imagenes_tela:
                 carpeta = "assets/telas"
@@ -296,8 +303,9 @@ def mostrar_pedidos_registrados():
                 f"""
                 <div class="pedido-seccion">
                     <div class="pedido-dato">📞 <strong>Contacto:</strong> {pedido.telefono}</div>
+                    <div class="pedido-dato">🪪 <strong>Identificación:</strong> {pedido.identificacion or 'No registrada'}</div>
                     <div class="pedido-dato">📅 <strong>Entrega Est.:</strong> {pedido.fecha_entrega.strftime('%d-%m-%Y')}</div>
-                    <div class="pedido-dato">📍 <strong>Destino:</strong> {pedido.provincia or 'No definida'}, {pedido.canton or 'No definido'}</div>
+                    <div class="pedido-dato">📍 <strong>Destino:</strong> {pedido.provincia or 'No definida'}, {pedido.canton or 'No definido'}, {pedido.distrito or 'No definido'}</div>
                     <div class="pedido-dato">🏡 <strong>Dirección:</strong> {pedido.direccion or 'No definida'}</div>
                 </div>
                 """,
@@ -352,26 +360,44 @@ def mostrar_pedidos_registrados():
                 st.rerun()
 
             if st.session_state.get("rol") == "Administrador":
-                with st.expander("✏️ Modificar Campos"):
+                with st.expander("✏️ Modificar Información Completa"):
+                    # --- EDICIÓN COMPLETA DE DATOS PERSONALES Y PRECIOS ---
+                    edit_cliente = st.text_input("Nombre del Cliente", value=pedido.cliente, key=f"cli_edit_{pedido.id}")
+                    edit_identificacion = st.text_input("Identificación", value=pedido.identificacion or "", key=f"ide_edit_{pedido.id}")
                     nuevo_telefono = st.text_input("Teléfono", value=pedido.telefono, key=f"telefono_edit_{pedido.id}")
                     nuevo_valor = st.number_input("Valor Total ₡", min_value=0.0, value=float(pedido.valor_total), key=f"valor_edit_{pedido.id}")
                     nuevo_abono = st.number_input("Abono ₡", min_value=0.0, value=float(pedido.abono), key=f"abono_edit_{pedido.id}")
                     
+                    # --- EDICIÓN COMPLETA DE ENVÍO ---
+                    st.markdown("**🚚 Dirección de Entrega:**")
                     idx_prov = provincias_lista.index(pedido.provincia) if pedido.provincia in provincias_lista else 0
                     nueva_provincia = st.selectbox("Provincia", provincias_lista, index=idx_prov, key=f"provincia_edit_{pedido.id}")
-                    nueva_descripcion = st.text_area("Notas Especiales", value=desc_actual or "", key=f"desc_edit_{pedido.id}")
+                    edit_canton = st.text_input("Cantón", value=pedido.canton or "", key=f"canton_edit_{pedido.id}")
+                    edit_distrito = st.text_input("Distrito", value=pedido.distrito or "", key=f"distrito_edit_{pedido.id}")
+                    edit_direccion = st.text_area("Dirección Completa", value=pedido.direccion or "", key=f"direc_edit_{pedido.id}")
+                    
+                    # --- EDICIÓN DE DESCRIPCIÓN ---
+                    nueva_descripcion = st.text_area("Notas Especiales / Descripción", value=desc_actual or "", key=f"desc_edit_{pedido.id}")
 
-                    if st.button("Confirmar Edición", key=f"actualizar_{pedido.id}"):
+                    if st.button("Confirmar Cambios", key=f"actualizar_{pedido.id}"):
+                        pedido.cliente = edit_cliente
+                        pedido.identificacion = edit_identificacion
                         pedido.telefono = nuevo_telefono
                         pedido.valor_total = nuevo_valor
                         pedido.abono = nuevo_abono
+                        
+                        # Guardado de la información completa del envío
                         pedido.provincia = nueva_provincia
+                        pedido.canton = edit_canton
+                        pedido.distrito = edit_distrito
+                        pedido.direccion = edit_direccion
+                        
                         pedido.descripcion = nueva_descripcion
                         pedido.saldo = max(0.0, nuevo_valor - nuevo_abono)
                         pedido.zona = clasificar_zona(nueva_provincia) if nueva_provincia else "Pendiente"
                         
                         session.commit()
-                        st.toast("Información actualizada de forma segura")
+                        st.toast("¡Toda la información del pedido y envío ha sido modificada!")
                         st.rerun()
 
                 if st.button("🗑️ Eliminar Registro", key=f"eliminar_{pedido.id}"):
