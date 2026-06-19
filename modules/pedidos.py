@@ -2,54 +2,40 @@ import streamlit as st
 from datetime import timedelta
 import os
 import uuid
-from sqlalchemy import text  # Importante para la migración automática
+from sqlalchemy import text
 
-# Agrupamos los imports de la base de datos
+# Importamos la configuración desde tu base de datos corregida
 from database.db import Pedido, session, engine
 
 
 def verificar_y_actualizar_base_de_datos():
-    """
-    Esta función verifica si la columna 'descripcion' existe en la tabla 'pedidos'.
-    Si no existe, la agrega automáticamente mediante un ALTER TABLE sin borrar datos.
-    """
+    """Asegura que la columna descripcion exista en SQLite de forma transparente."""
     try:
         with engine.connect() as conn:
-            # Consultamos la estructura actual de la tabla pedidos
-            # Si estás usando SQLite, PRAGMA es el comando estándar
             result = conn.execute(text("PRAGMA table_info(pedidos);")).fetchall()
             columnas = [row[1] for row in result]
-            
-            # Si 'descripcion' no está en las columnas, la creamos dinámicamente
             if "descripcion" not in columnas:
                 conn.execute(text("ALTER TABLE pedidos ADD COLUMN descripcion TEXT;"))
                 conn.commit()
-    except Exception as e:
-        # Si no es SQLite o falla por otra razón, dejamos que continúe para no congelar la app
+    except Exception:
         pass
 
-# Ejecutamos la verificación apenas se carga este módulo
 verificar_y_actualizar_base_de_datos()
 
 
 def calcular_fecha_entrega(fecha_inicio):
     dias_agregados = 0
     fecha = fecha_inicio
-
     while dias_agregados < 22:
         fecha += timedelta(days=1)
         if fecha.weekday() != 6:  # Excluye domingos
             dias_agregados += 1
-
     return fecha
 
 
 def clasificar_zona(provincia):
     provincias_gam = ["San José", "Alajuela", "Heredia", "Cartago"]
-    if provincia in provincias_gam:
-        return "GAM"
-    else:
-        return "Resto País"
+    return "GAM" if provincia in provincias_gam else "Resto País"
 
 
 def pedido_duplicado(cliente, producto, fecha_pedido):
@@ -75,7 +61,6 @@ def estilo_estado(estado):
 
 
 def mostrar_pedidos():
-    # Evita errores si 'rol' no está inicializado en session_state
     if st.session_state.get("rol") != "Administrador":
         st.error("No tienes permisos para crear pedidos.")
         return
@@ -95,7 +80,7 @@ def mostrar_pedidos():
 
     st.divider()
 
-    with st.form("formulario_pedido"):
+    with st.form("formulario_pedido", clear_on_submit=True):
         st.subheader("Información del Cliente")
         col1, col2 = st.columns(2)
 
@@ -138,9 +123,8 @@ def mostrar_pedidos():
 
             valor_total += subtotal_producto
             cantidad_total += cantidad_producto
-            st.write(f"Subtotal producto {i + 1}: ₡{subtotal_producto:,.0f}")
 
-        st.success(f"Valor total del pedido: ₡{valor_total:,.0f}")
+        st.success(f"Valor total acumulado: ₡{valor_total:,.0f}")
         st.divider()
 
         st.subheader("Telas Personalizadas")
@@ -153,53 +137,51 @@ def mostrar_pedidos():
         sinpe = st.selectbox("SINPE Verificado", ["No", "Sí"])
         
         saldo = max(0.0, valor_total - abono)
-        st.write(f"Saldo Pendiente: ₡{saldo:,.0f}")
 
         st.divider()
-        st.subheader("Dirección")
+        st.subheader("Dirección de Envío")
         provincias_lista = ["", "San José", "Alajuela", "Cartago", "Heredia", "Guanacaste", "Puntarenas", "Limón"]
         provincia = st.selectbox("Provincia", provincias_lista)
         canton = st.text_input("Cantón")
         distrito = st.text_input("Distrito")
         direccion = st.text_area("Dirección Completa")
 
-        zona = clasificar_zona(provincia) if provincia.strip() != "" else "Pendiente"
-        st.write(f"Zona: {zona}")
-
         st.divider()
         st.subheader("📝 Detalles Adicionales")
-        descripcion = st.text_area("Descripción, especificaciones o notas del pedido", placeholder="Escribe aquí detalles de costura, medidas especiales, etc...")
+        descripcion = st.text_area("Descripción, especificaciones o notas del pedido")
 
-        # El pedido SOLO se guarda y procesa al presionar este botón formal
+        # Control Maestro: NADA pasa a la base de datos si no se activa esta variable estrictamente
         guardar = st.form_submit_button("Guardar Pedido")
 
         if guardar:
             faltantes = []
-            if cliente.strip() == "": faltantes.append("Cliente")
-            if telefono.strip() == "": faltantes.append("Teléfono")
+            if not cliente.strip(): faltantes.append("Cliente")
+            if not telefono.strip(): faltantes.append("Teléfono")
 
             productos_validos = [p for p in productos if p["nombre"].strip() != "" and p["subtotal"] > 0]
             if len(productos_validos) == 0:
-                faltantes.append("Debe ingresar al menos un producto con valor")
+                faltantes.append("Debe ingresar al menos un producto válido con precio")
             if valor_total <= 0:
-                faltantes.append("Valor Total")
+                faltantes.append("Valor Total del Pedido")
 
             if len(faltantes) > 0:
-                st.error("⚠️ Faltan campos obligatorios: " + ", ".join(faltantes))
+                st.error("⚠️ No se puede guardar. Faltan campos obligatorios: " + ", ".join(faltantes))
                 return
 
             resumen_productos = [
-                f"{p['cantidad']} x {p['nombre']} ₡{p['valor_unitario']:,.0f} c/u = ₡{p['subtotal']:,.0f}"
+                f"{p['cantidad']} x {p['nombre']} (₡{p['valor_unitario']:,.0f} c/u)"
                 for p in productos_validos
             ]
             producto_string = " | ".join(resumen_productos)
 
             if pedido_duplicado(cliente, producto_string, fecha_pedido):
-                st.error("⚠️ Este pedido ya existe.")
+                st.error("⚠️ Este pedido exacto ya fue registrado hoy.")
                 return
 
             estado_pago = "Cancelado" if saldo == 0 else ("Abonado" if abono > 0 else "Pendiente")
+            zona = clasificar_zona(provincia) if provincia.strip() != "" else "Pendiente"
 
+            # Guardado correcto y físico de los archivos de tela
             rutas_imagenes = []
             if imagenes_tela:
                 carpeta = "assets/telas"
@@ -212,6 +194,8 @@ def mostrar_pedidos():
                         f.write(imagen.getbuffer())
                     rutas_imagenes.append(ruta_imagen)
 
+            rutas_guardadas = ";".join(rutas_imagenes) if rutas_imagenes else ""
+
             nuevo_pedido = Pedido(
                 cliente=cliente, telefono=telefono, identificacion=identificacion,
                 producto=producto_string, cantidad=cantidad_total, valor_total=valor_total,
@@ -219,13 +203,17 @@ def mostrar_pedidos():
                 fecha_pedido=fecha_pedido, fecha_entrega=fecha_entrega, prioridad=prioridad,
                 provincia=provincia, canton=canton, distrito=distrito, zona=zona,
                 direccion=direccion, estado="Pendiente", tela_personalizada=tela_personalizada,
-                imagen_tela=";".join(rutas_imagenes), descripcion=descripcion
+                imagen_tela=rutas_guardadas, descripcion=descripcion
             )
 
-            session.add(nuevo_pedido)
-            session.commit()
-            st.success("✅ Pedido registrado correctamente")
-            st.rerun()
+            try:
+                session.add(nuevo_pedido)
+                session.commit()
+                st.success("✅ ¡Pedido guardado exitosamente en el sistema!")
+                st.rerun()
+            except Exception as e:
+                session.rollback()
+                st.error(f"Error crítico al guardar en base de datos: {e}")
 
 
 def mostrar_pedidos_registrados():
@@ -233,7 +221,7 @@ def mostrar_pedidos_registrados():
     pedidos = session.query(Pedido).all()
 
     if len(pedidos) == 0:
-        st.warning("No hay pedidos registrados")
+        st.warning("No hay pedidos registrados en el sistema.")
         return
 
     st.markdown(
@@ -250,15 +238,15 @@ def mostrar_pedidos_registrados():
         unsafe_allow_html=True
     )
 
-    st.subheader("🔍 Buscar pedido")
+    st.subheader("🔍 Filtros de Búsqueda")
     col_buscar1, col_buscar2, col_buscar3 = st.columns(3)
 
     with col_buscar1:
-        buscar = st.text_input("Buscar por cliente, teléfono, producto, identificación o lugar", key="buscar_pedido")
+        buscar = st.text_input("Buscar por palabra clave...", key="buscar_pedido")
     with col_buscar2:
-        filtro_estado = st.selectbox("Filtrar por estado", ["Todos", "Pendiente", "En proceso", "En confección", "Terminado", "Tela pedida", "Tela pendiente", "Tela recibida"], key="filtro_estado_pedido")
+        filtro_estado = st.selectbox("Estado del proceso", ["Todos", "Pendiente", "En proceso", "En confección", "Terminado", "Tela pedida", "Tela pendiente", "Tela recibida"], key="filtro_estado_pedido")
     with col_buscar3:
-        filtro_tela = st.selectbox("Filtrar por tela personalizada", ["Todos", "Sí", "No"], key="filtro_tela_pedido")
+        filtro_tela = st.selectbox("¿Filtro Tela Personalizada?", ["Todos", "Sí", "No"], key="filtro_tela_pedido")
 
     pedidos_filtrados = []
     texto_busqueda = buscar.strip().lower()
@@ -266,7 +254,7 @@ def mostrar_pedidos_registrados():
     for pedido in pedidos:
         if texto_busqueda != "":
             desc_segura = getattr(pedido, 'descripcion', '') or ''
-            datos_pedido = f"{pedido.cliente} {pedido.telefono} {pedido.producto} {pedido.identificacion} {pedido.provincia} {pedido.canton} {pedido.direccion} {desc_segura}".lower()
+            datos_pedido = f"{pedido.cliente} {pedido.telefono} {pedido.producto} {pedido.provincia} {pedido.canton} {pedido.direccion} {desc_segura}".lower()
             if texto_busqueda not in datos_pedido:
                 continue
         if filtro_estado != "Todos" and pedido.estado != filtro_estado:
@@ -276,15 +264,15 @@ def mostrar_pedidos_registrados():
         pedidos_filtrados.append(pedido)
 
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    col_m1.metric("📦 Pedidos", len(pedidos_filtrados))
+    col_m1.metric("📦 Total Filtrados", len(pedidos_filtrados))
     col_m2.metric("🟡 Pendientes", len([p for p in pedidos_filtrados if p.estado == "Pendiente"]))
     col_m3.metric("🟢 Terminados", len([p for p in pedidos_filtrados if p.estado == "Terminado"]))
-    col_m4.metric("🧵 Con tela", len([p for p in pedidos_filtrados if p.tela_personalizada == "Sí"]))
+    col_m4.metric("🧵 Personalizados", len([p for p in pedidos_filtrados if p.tela_personalizada == "Sí"]))
 
     st.divider()
 
     if len(pedidos_filtrados) == 0:
-        st.warning("No se encontraron pedidos con esos filtros.")
+        st.warning("Ningún pedido coincide con los filtros seleccionados.")
         return
 
     provincias_lista = ["", "San José", "Alajuela", "Cartago", "Heredia", "Guanacaste", "Puntarenas", "Limón"]
@@ -293,8 +281,8 @@ def mostrar_pedidos_registrados():
         st.markdown(
             f"""
             <div class="pedido-card">
-                <div class="pedido-titulo">📦 Pedido #{pedido.id}</div>
-                <div class="pedido-subtitulo">👤 {pedido.cliente} | {pedido.producto}</div>
+                <div class="pedido-titulo">📦 Pedido #{pedido.id} - {pedido.cliente}</div>
+                <div class="pedido-subtitulo">✨ {pedido.producto}</div>
                 <div class="pedido-estado">{estilo_estado(pedido.estado)}</div>
             </div>
             """,
@@ -307,23 +295,22 @@ def mostrar_pedidos_registrados():
             st.markdown(
                 f"""
                 <div class="pedido-seccion">
-                    <div class="pedido-dato">📞 <strong>Teléfono:</strong> {pedido.telefono}</div>
-                    <div class="pedido-dato">📅 <strong>Fecha Entrega:</strong> {pedido.fecha_entrega.strftime('%d-%m-%Y')}</div>
-                    <div class="pedido-dato">📍 <strong>Provincia:</strong> {pedido.provincia or 'Pendiente'}</div>
-                    <div class="pedido-dato">🏡 <strong>Dirección:</strong> {pedido.direccion or 'Pendiente'}</div>
+                    <div class="pedido-dato">📞 <strong>Contacto:</strong> {pedido.telefono}</div>
+                    <div class="pedido-dato">📅 <strong>Entrega Est.:</strong> {pedido.fecha_entrega.strftime('%d-%m-%Y')}</div>
+                    <div class="pedido-dato">📍 <strong>Destino:</strong> {pedido.provincia or 'No definida'}, {pedido.canton or 'No definido'}</div>
+                    <div class="pedido-dato">🏡 <strong>Dirección:</strong> {pedido.direccion or 'No definida'}</div>
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            # Sección para renderizar la descripción del pedido si contiene datos
             desc_actual = getattr(pedido, 'descripcion', '')
             if desc_actual:
                 st.markdown(
                     f"""
-                    <div class="pedido-seccion" style="border-left: 5px solid #F6BDC1;">
-                        <strong>📝 Descripción / Notas:</strong><br>
-                        <p style="font-style: italic; margin-top: 5px; color: #555555; white-space: pre-wrap;">{desc_actual}</p>
+                    <div class="pedido-seccion" style="border-left: 5px solid #F6BDC1; background-color: #FAFAFA;">
+                        <strong>📝 Notas del Pedido:</strong><br>
+                        <p style="font-style: italic; margin-top: 5px; color: #444444; white-space: pre-wrap;">{desc_actual}</p>
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -333,47 +320,48 @@ def mostrar_pedidos_registrados():
                 st.markdown(
                     f"""
                     <div class="pedido-seccion">
-                        <div class="pedido-dato">💰 <strong>Valor:</strong> ₡{pedido.valor_total:,.0f} | 💳 <strong>Saldo:</strong> ₡{pedido.saldo:,.0f}</div>
+                        <div class="pedido-dato">💰 <strong>Total Mts/Prendas:</strong> ₡{pedido.valor_total:,.0f} | 💳 <strong>Saldo Neto:</strong> ₡{pedido.saldo:,.0f}</div>
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
 
         with col2:
-            st.markdown("#### 🖼️ Imágenes")
-            if pedido.imagen_tela:
-                for imagen in pedido.imagen_tela.split(";"):
-                    if imagen.strip():
-                        st.image(imagen, width=150)
+            st.markdown("#### 🖼️ Diseño de Tela")
+            if pedido.imagen_tela and pedido.imagen_tela.strip() != "":
+                imagenes = pedido.imagen_tela.split(";")
+                for imagen in imagenes:
+                    if imagen.strip() and os.path.exists(imagen.strip()):
+                        st.image(imagen.strip(), use_container_width=True)
+                    else:
+                        st.caption("⚠️ Archivo no encontrado localmente")
             else:
-                st.caption("Sin imágenes.")
+                st.caption("No requiere o no tiene imágenes cargadas.")
 
         with col3:
-            st.markdown("#### ⚙️ Acciones")
+            st.markdown("#### ⚙️ Gestión")
             estados = ["Pendiente", "En proceso", "En confección", "Terminado", "Tela pedida", "Tela pendiente", "Tela recibida"]
             
             idx_estado = estados.index(pedido.estado) if pedido.estado in estados else 0
-            nuevo_estado = st.selectbox("Estado", estados, index=idx_estado, key=f"estado_{pedido.id}")
+            nuevo_estado = st.selectbox("Cambiar Estado", estados, index=idx_estado, key=f"estado_{pedido.id}")
 
-            if st.button("Guardar Estado", key=f"guardar_estado_{pedido.id}"):
+            if st.button("Actualizar Estado", key=f"guardar_estado_{pedido.id}"):
                 pedido.estado = nuevo_estado
                 session.commit()
-                st.toast("Estado actualizado")
+                st.toast("¡Estado del pedido actualizado!")
                 st.rerun()
 
             if st.session_state.get("rol") == "Administrador":
-                with st.expander("✏️ Actualizar información"):
+                with st.expander("✏️ Modificar Campos"):
                     nuevo_telefono = st.text_input("Teléfono", value=pedido.telefono, key=f"telefono_edit_{pedido.id}")
                     nuevo_valor = st.number_input("Valor Total ₡", min_value=0.0, value=float(pedido.valor_total), key=f"valor_edit_{pedido.id}")
                     nuevo_abono = st.number_input("Abono ₡", min_value=0.0, value=float(pedido.abono), key=f"abono_edit_{pedido.id}")
                     
                     idx_prov = provincias_lista.index(pedido.provincia) if pedido.provincia in provincias_lista else 0
                     nueva_provincia = st.selectbox("Provincia", provincias_lista, index=idx_prov, key=f"provincia_edit_{pedido.id}")
-                    
-                    # Campo para poder editar las notas guardadas del pedido
-                    nueva_descripcion = st.text_area("Editar Descripción", value=desc_actual or "", key=f"desc_edit_{pedido.id}")
+                    nueva_descripcion = st.text_area("Notas Especiales", value=desc_actual or "", key=f"desc_edit_{pedido.id}")
 
-                    if st.button("Actualizar información", key=f"actualizar_{pedido.id}"):
+                    if st.button("Confirmar Edición", key=f"actualizar_{pedido.id}"):
                         pedido.telefono = nuevo_telefono
                         pedido.valor_total = nuevo_valor
                         pedido.abono = nuevo_abono
@@ -383,9 +371,10 @@ def mostrar_pedidos_registrados():
                         pedido.zona = clasificar_zona(nueva_provincia) if nueva_provincia else "Pendiente"
                         
                         session.commit()
+                        st.toast("Información actualizada de forma segura")
                         st.rerun()
 
-                if st.button("🗑️ Eliminar Pedido", key=f"eliminar_{pedido.id}"):
+                if st.button("🗑️ Eliminar Registro", key=f"eliminar_{pedido.id}"):
                     session.delete(pedido)
                     session.commit()
                     st.rerun()
@@ -397,33 +386,35 @@ def editar_pedido():
     pedidos = session.query(Pedido).filter_by(tela_personalizada="Sí").all()
 
     if len(pedidos) == 0:
-        st.warning("No hay pedidos con telas personalizadas.")
+        st.warning("No existen solicitudes activas con telas personalizadas.")
         return
 
     opciones = [f"{p.id} - {p.cliente} | {p.producto}" for p in pedidos]
-    seleccion = st.selectbox("Seleccione el pedido", opciones)
+    seleccion = st.selectbox("Seleccione el pedido a revisar", opciones)
     id_pedido = int(seleccion.split(" - ")[0])
 
     pedido = session.query(Pedido).filter_by(id=id_pedido).first()
 
-    st.subheader("Información de Telas")
-    st.write(f"Cliente: {pedido.cliente}")
-    st.write(f"Producto: {pedido.producto}")
+    st.subheader("Ficha Técnica de Telas")
+    st.write(f"**Cliente:** {pedido.cliente}")
+    st.write(f"**Detalle:** {pedido.producto}")
 
-    if pedido.imagen_tela:
+    if pedido.imagen_tela and pedido.imagen_tela.strip() != "":
         for imagen in pedido.imagen_tela.split(";"):
-            if imagen.strip():
-                st.image(imagen, width=200)
+            if imagen.strip() and os.path.exists(imagen.strip()):
+                st.image(imagen.strip(), width=250)
+    else:
+        st.caption("Este pedido no contiene muestras físicas guardadas.")
 
     st.divider()
 
     default_pedida = "Sí" if pedido.estado in ["Tela pedida", "Tela recibida"] else "No"
     default_llego = "Sí" if pedido.estado == "Tela recibida" else "No"
 
-    tela_pedida = st.selectbox("¿Ya se pidió la tela?", ["No", "Sí"], index=["No", "Sí"].index(default_pedida))
-    tela_llego = st.selectbox("¿Ya llegó la tela?", ["No", "Sí"], index=["No", "Sí"].index(default_llego))
+    tela_pedida = st.selectbox("¿Se mandó a pedir la tela?", ["No", "Sí"], index=["No", "Sí"].index(default_pedida))
+    tela_llego = st.selectbox("¿Llegó la tela al taller?", ["No", "Sí"], index=["No", "Sí"].index(default_llego))
 
-    if st.button("Guardar información de telas"):
+    if st.button("Actualizar Estatus de Suministro"):
         if tela_llego == "Sí":
             pedido.estado = "Tela recibida"
         elif tela_pedida == "Sí":
@@ -432,5 +423,5 @@ def editar_pedido():
             pedido.estado = "Tela pendiente"
 
         session.commit()
-        st.success("✅ Información de telas actualizada de forma segura")
+        st.success("✅ Estatus de telas sincronizado.")
         st.rerun()
