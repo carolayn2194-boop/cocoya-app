@@ -2,9 +2,34 @@ import streamlit as st
 from datetime import timedelta
 import os
 import uuid
+from sqlalchemy import text  # Importante para la migración automática
 
 # Agrupamos los imports de la base de datos
-from database.db import Pedido, session
+from database.db import Pedido, session, engine
+
+
+def verificar_y_actualizar_base_de_datos():
+    """
+    Esta función verifica si la columna 'descripcion' existe en la tabla 'pedidos'.
+    Si no existe, la agrega automáticamente mediante un ALTER TABLE sin borrar datos.
+    """
+    try:
+        with engine.connect() as conn:
+            # Consultamos la estructura actual de la tabla pedidos
+            # Si estás usando SQLite, PRAGMA es el comando estándar
+            result = conn.execute(text("PRAGMA table_info(pedidos);")).fetchall()
+            columnas = [row[1] for row in result]
+            
+            # Si 'descripcion' no está en las columnas, la creamos dinámicamente
+            if "descripcion" not in columnas:
+                conn.execute(text("ALTER TABLE pedidos ADD COLUMN descripcion TEXT;"))
+                conn.commit()
+    except Exception as e:
+        # Si no es SQLite o falla por otra razón, dejamos que continúe para no congelar la app
+        pass
+
+# Ejecutamos la verificación apenas se carga este módulo
+verificar_y_actualizar_base_de_datos()
 
 
 def calcular_fecha_entrega(fecha_inicio):
@@ -145,7 +170,7 @@ def mostrar_pedidos():
         st.subheader("📝 Detalles Adicionales")
         descripcion = st.text_area("Descripción, especificaciones o notas del pedido", placeholder="Escribe aquí detalles de costura, medidas especiales, etc...")
 
-        # El pedido SOLO se procesa si se presiona este botón específico de envío del Form
+        # El pedido SOLO se guarda y procesa al presionar este botón formal
         guardar = st.form_submit_button("Guardar Pedido")
 
         if guardar:
@@ -240,7 +265,6 @@ def mostrar_pedidos_registrados():
 
     for pedido in pedidos:
         if texto_busqueda != "":
-            # Se incluye la descripción en el string de búsqueda global
             desc_segura = getattr(pedido, 'descripcion', '') or ''
             datos_pedido = f"{pedido.cliente} {pedido.telefono} {pedido.producto} {pedido.identificacion} {pedido.provincia} {pedido.canton} {pedido.direccion} {desc_segura}".lower()
             if texto_busqueda not in datos_pedido:
@@ -251,7 +275,6 @@ def mostrar_pedidos_registrados():
             continue
         pedidos_filtrados.append(pedido)
 
-    # Métricas grupales
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
     col_m1.metric("📦 Pedidos", len(pedidos_filtrados))
     col_m2.metric("🟡 Pendientes", len([p for p in pedidos_filtrados if p.estado == "Pendiente"]))
@@ -293,14 +316,14 @@ def mostrar_pedidos_registrados():
                 unsafe_allow_html=True
             )
 
-            # Sección visual para mostrar las notas si existen
+            # Sección para renderizar la descripción del pedido si contiene datos
             desc_actual = getattr(pedido, 'descripcion', '')
             if desc_actual:
                 st.markdown(
                     f"""
                     <div class="pedido-seccion" style="border-left: 5px solid #F6BDC1;">
                         <strong>📝 Descripción / Notas:</strong><br>
-                        <p style="font-style: italic; margin-top: 5px; color: #555555;">{desc_actual}</p>
+                        <p style="font-style: italic; margin-top: 5px; color: #555555; white-space: pre-wrap;">{desc_actual}</p>
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -347,7 +370,7 @@ def mostrar_pedidos_registrados():
                     idx_prov = provincias_lista.index(pedido.provincia) if pedido.provincia in provincias_lista else 0
                     nueva_provincia = st.selectbox("Provincia", provincias_lista, index=idx_prov, key=f"provincia_edit_{pedido.id}")
                     
-                    # Campo para editar la descripción existente
+                    # Campo para poder editar las notas guardadas del pedido
                     nueva_descripcion = st.text_area("Editar Descripción", value=desc_actual or "", key=f"desc_edit_{pedido.id}")
 
                     if st.button("Actualizar información", key=f"actualizar_{pedido.id}"):
