@@ -13,7 +13,6 @@ def calcular_fecha_entrega(fecha_inicio):
     fecha = fecha_inicio
 
     while dias_agregados < 22:
-
         fecha += timedelta(days=1)
 
         if fecha.weekday() != 6:
@@ -79,7 +78,6 @@ def estilo_estado(estado):
 def mostrar_pedidos():
 
     if st.session_state.rol != "Administrador":
-
         st.error("No tienes permisos para crear pedidos.")
         return
 
@@ -135,19 +133,70 @@ def mostrar_pedidos():
 
         with col2:
 
-            producto = st.text_input("Producto")
-
-            cantidad = st.number_input(
-                "Cantidad",
+            cantidad_productos = st.number_input(
+                "¿Cuántos productos desea agregar?",
                 min_value=1,
+                max_value=10,
+                value=1,
                 step=1
             )
 
-            valor_total = st.number_input(
-                "Valor Total ₡",
-                min_value=0.0,
-                step=1000.0
+        st.divider()
+
+        st.subheader("Productos del Pedido")
+
+        productos = []
+        valor_total = 0
+        cantidad_total = 0
+
+        for i in range(cantidad_productos):
+
+            st.markdown(f"### Producto {i + 1}")
+
+            col_prod1, col_prod2, col_prod3 = st.columns(3)
+
+            with col_prod1:
+
+                nombre_producto = st.text_input(
+                    f"Nombre del producto {i + 1}",
+                    key=f"producto_{i}"
+                )
+
+            with col_prod2:
+
+                cantidad_producto = st.number_input(
+                    f"Cantidad {i + 1}",
+                    min_value=1,
+                    step=1,
+                    key=f"cantidad_{i}"
+                )
+
+            with col_prod3:
+
+                valor_producto = st.number_input(
+                    f"Valor unitario producto {i + 1} ₡",
+                    min_value=0.0,
+                    step=1000.0,
+                    key=f"valor_producto_{i}"
+                )
+
+            subtotal_producto = cantidad_producto * valor_producto
+
+            productos.append(
+                {
+                    "nombre": nombre_producto,
+                    "cantidad": cantidad_producto,
+                    "valor_unitario": valor_producto,
+                    "subtotal": subtotal_producto
+                }
             )
+
+            valor_total += subtotal_producto
+            cantidad_total += cantidad_producto
+
+            st.write(f"Subtotal producto {i + 1}: ₡{subtotal_producto:,.0f}")
+
+        st.success(f"Valor total del pedido: ₡{valor_total:,.0f}")
 
         st.divider()
 
@@ -190,9 +239,12 @@ def mostrar_pedidos():
 
         st.subheader("Dirección")
 
+        st.info("Puedes guardar el pedido aunque todavía no tengas la información de envío.")
+
         provincia = st.selectbox(
             "Provincia",
             [
+                "",
                 "San José",
                 "Alajuela",
                 "Cartago",
@@ -209,7 +261,10 @@ def mostrar_pedidos():
 
         direccion = st.text_area("Dirección Completa")
 
-        zona = clasificar_zona(provincia)
+        if provincia.strip() != "":
+            zona = clasificar_zona(provincia)
+        else:
+            zona = "Pendiente"
 
         st.write(f"Zona: {zona}")
 
@@ -225,20 +280,18 @@ def mostrar_pedidos():
             if telefono.strip() == "":
                 faltantes.append("Teléfono")
 
-            if producto.strip() == "":
-                faltantes.append("Producto")
+            productos_validos = []
+
+            for producto_item in productos:
+
+                if producto_item["nombre"].strip() != "" and producto_item["subtotal"] > 0:
+                    productos_validos.append(producto_item)
+
+            if len(productos_validos) == 0:
+                faltantes.append("Debe ingresar al menos un producto con valor")
 
             if valor_total <= 0:
                 faltantes.append("Valor Total")
-
-            if canton.strip() == "":
-                faltantes.append("Cantón")
-
-            if distrito.strip() == "":
-                faltantes.append("Distrito")
-
-            if direccion.strip() == "":
-                faltantes.append("Dirección")
 
             if len(faltantes) > 0:
 
@@ -248,6 +301,19 @@ def mostrar_pedidos():
                 )
 
                 return
+
+            resumen_productos = []
+
+            for producto_item in productos_validos:
+
+                resumen_productos.append(
+                    f"{producto_item['cantidad']} x {producto_item['nombre']} "
+                    f"₡{producto_item['valor_unitario']:,.0f} c/u "
+                    f"= ₡{producto_item['subtotal']:,.0f}"
+                )
+
+            producto = " | ".join(resumen_productos)
+            cantidad = cantidad_total
 
             if pedido_duplicado(cliente, producto, fecha_pedido):
 
@@ -534,7 +600,7 @@ def mostrar_pedidos_registrados():
                 <div class="pedido-seccion">
                     <div class="pedido-dato">📞 <strong>Teléfono:</strong> {pedido.telefono}</div>
                     <div class="pedido-dato">🪪 <strong>Identificación:</strong> {pedido.identificacion if pedido.identificacion else "No registrada"}</div>
-                    <div class="pedido-dato">📦 <strong>Cantidad:</strong> {pedido.cantidad}</div>
+                    <div class="pedido-dato">📦 <strong>Cantidad total:</strong> {pedido.cantidad}</div>
                     <div class="pedido-dato">📅 <strong>Fecha Pedido:</strong> {pedido.fecha_pedido.strftime('%d-%m-%Y')}</div>
                     <div class="pedido-dato">🚚 <strong>Fecha Entrega:</strong> {pedido.fecha_entrega.strftime('%d-%m-%Y')}</div>
                     <div class="pedido-dato">🧵 <strong>Tela personalizada:</strong> {pedido.tela_personalizada}</div>
@@ -546,11 +612,11 @@ def mostrar_pedidos_registrados():
             st.markdown(
                 f"""
                 <div class="pedido-seccion">
-                    <div class="pedido-dato">📍 <strong>Provincia:</strong> {pedido.provincia}</div>
-                    <div class="pedido-dato">🏠 <strong>Cantón:</strong> {pedido.canton}</div>
-                    <div class="pedido-dato">📌 <strong>Distrito:</strong> {pedido.distrito}</div>
-                    <div class="pedido-dato">🗺️ <strong>Zona:</strong> {pedido.zona}</div>
-                    <div class="pedido-dato">🏡 <strong>Dirección:</strong> {pedido.direccion}</div>
+                    <div class="pedido-dato">📍 <strong>Provincia:</strong> {pedido.provincia if pedido.provincia else "Pendiente"}</div>
+                    <div class="pedido-dato">🏠 <strong>Cantón:</strong> {pedido.canton if pedido.canton else "Pendiente"}</div>
+                    <div class="pedido-dato">📌 <strong>Distrito:</strong> {pedido.distrito if pedido.distrito else "Pendiente"}</div>
+                    <div class="pedido-dato">🗺️ <strong>Zona:</strong> {pedido.zona if pedido.zona else "Pendiente"}</div>
+                    <div class="pedido-dato">🏡 <strong>Dirección:</strong> {pedido.direccion if pedido.direccion else "Pendiente"}</div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -640,7 +706,7 @@ def mostrar_pedidos_registrados():
                     )
 
                     nueva_cantidad = st.number_input(
-                        "Cantidad",
+                        "Cantidad total",
                         min_value=1,
                         value=pedido.cantidad,
                         step=1,
@@ -663,6 +729,73 @@ def mostrar_pedidos_registrados():
                         key=f"abono_edit_{pedido.id}"
                     )
 
+                    st.divider()
+
+                    st.markdown("### 🚚 Información de envío")
+
+                    nueva_provincia = st.selectbox(
+                        "Provincia",
+                        [
+                            "",
+                            "San José",
+                            "Alajuela",
+                            "Cartago",
+                            "Heredia",
+                            "Guanacaste",
+                            "Puntarenas",
+                            "Limón"
+                        ],
+                        index=[
+                            "",
+                            "San José",
+                            "Alajuela",
+                            "Cartago",
+                            "Heredia",
+                            "Guanacaste",
+                            "Puntarenas",
+                            "Limón"
+                        ].index(pedido.provincia)
+                        if pedido.provincia in [
+                            "",
+                            "San José",
+                            "Alajuela",
+                            "Cartago",
+                            "Heredia",
+                            "Guanacaste",
+                            "Puntarenas",
+                            "Limón"
+                        ]
+                        else 0,
+                        key=f"provincia_edit_{pedido.id}"
+                    )
+
+                    nuevo_canton = st.text_input(
+                        "Cantón",
+                        value=pedido.canton if pedido.canton else "",
+                        key=f"canton_edit_{pedido.id}"
+                    )
+
+                    nuevo_distrito = st.text_input(
+                        "Distrito",
+                        value=pedido.distrito if pedido.distrito else "",
+                        key=f"distrito_edit_{pedido.id}"
+                    )
+
+                    nueva_direccion = st.text_area(
+                        "Dirección Completa",
+                        value=pedido.direccion if pedido.direccion else "",
+                        key=f"direccion_edit_{pedido.id}"
+                    )
+
+                    if nueva_provincia.strip() != "":
+                        nueva_zona = clasificar_zona(nueva_provincia)
+                    else:
+                        nueva_zona = "Pendiente"
+
+                    st.write(f"Zona: {nueva_zona}")
+
+                    st.divider()
+
                     nuevas_imagenes = st.file_uploader(
                         "Agregar más imágenes",
                         type=["png", "jpg", "jpeg"],
@@ -674,7 +807,6 @@ def mostrar_pedidos_registrados():
                         "Actualizar información",
                         key=f"actualizar_{pedido.id}"
                     ):
-                
 
                         pedido.telefono = nuevo_telefono
                         pedido.identificacion = nueva_identificacion
@@ -682,12 +814,27 @@ def mostrar_pedidos_registrados():
                         pedido.valor_total = nuevo_valor
                         pedido.abono = nuevo_abono
 
+                        pedido.provincia = nueva_provincia
+                        pedido.canton = nuevo_canton
+                        pedido.distrito = nuevo_distrito
+                        pedido.direccion = nueva_direccion
+                        pedido.zona = nueva_zona
+
                         nuevo_saldo = nuevo_valor - nuevo_abono
 
                         if nuevo_saldo < 0:
                             nuevo_saldo = 0
 
                         pedido.saldo = nuevo_saldo
+
+                        if nuevo_abono > 0:
+                            pedido.estado_pago = "Abonado"
+
+                        if nuevo_saldo == 0:
+                            pedido.estado_pago = "Cancelado"
+
+                        if nuevo_abono == 0:
+                            pedido.estado_pago = "Pendiente"
 
                         if nuevas_imagenes:
 
@@ -819,6 +966,3 @@ def editar_pedido():
         st.success("✅ Información actualizada")
 
         st.rerun()
-
-
-
