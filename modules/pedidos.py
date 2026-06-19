@@ -80,11 +80,12 @@ def mostrar_pedidos():
 
     st.divider()
 
-    # Inicializamos una bandera segura para evitar el "Enter" accidental
-    if "clic_guardar" not in st.session_state:
-        st.session_state.clic_guardar = False
+    # Inicializamos estados para controlar los clics reales del mouse de forma estricta
+    if "ejecutar_guardado" not in st.session_state:
+        st.session_state.ejecutar_guardado = False
 
-    with st.form("formulario_pedido", clear_on_submit=True):
+    # IMPORTANTE: Eliminamos 'clear_on_submit=True' para que si falta algo, el formulario NO se borre solo
+    with st.form("formulario_pedido"):
         st.subheader("Información del Cliente")
         col1, col2 = st.columns(2)
 
@@ -154,73 +155,74 @@ def mostrar_pedidos():
         st.subheader("📝 Detalles Adicionales")
         descripcion = st.text_area("Descripción, especificaciones o notas del pedido")
 
-        # El botón nativo del formulario cambia la bandera
-        if st.form_submit_button("Guardar Pedido"):
-            st.session_state.clic_guardar = True
+        # El botón del formulario cambia este estado específico al hacer clic real
+        if st.form_submit_button("💥 GUARDAR PEDIDO"):
+            st.session_state.ejecutar_guardado = True
 
-        # BLINDAJE DE SEGURIDAD: Solo si el usuario hizo clic real en el botón se procesa el código
-        if st.session_state.clic_guardar:
-            st.session_state.clic_guardar = False # Reseteamos de inmediato la bandera
+    # El procesamiento ocurre AFUERA del bloque del formulario para mantener los inputs intactos si hay errores
+    if st.session_state.ejecutar_guardado:
+        st.session_state.ejecutar_guardado = False  # Reseteo inmediato
 
-            faltantes = []
-            if not cliente.strip(): faltantes.append("Cliente")
-            if not telefono.strip(): faltantes.append("Teléfono")
+        faltantes = []
+        if not cliente.strip(): faltantes.append("Cliente")
+        if not telefono.strip(): faltantes.append("Teléfono")
 
-            productos_validos = [p for p in productos if p["nombre"].strip() != "" and p["subtotal"] > 0]
-            if len(productos_validos) == 0:
-                faltantes.append("Debe ingresar al menos un producto válido con precio")
-            if valor_total <= 0:
-                faltantes.append("Valor Total del Pedido")
+        productos_validos = [p for p in productos if p["nombre"].strip() != "" and p["subtotal"] > 0]
+        if len(productos_validos) == 0:
+            faltantes.append("Debe ingresar al menos un producto válido con precio")
+        if valor_total <= 0:
+            faltantes.append("Valor Total del Pedido")
 
-            if len(faltantes) > 0:
-                st.error("⚠️ No se puede guardar. Faltan campos obligatorios: " + ", ".join(faltantes))
-                return
+        if len(faltantes) > 0:
+            st.error("⚠️ ERROR: No se guardó nada. Faltan estos campos obligatorios: " + ", ".join(faltantes))
+            return  # Frena el guardado, pero los datos siguen escritos en los inputs superiores
 
-            resumen_productos = [
-                f"{p['cantidad']} x {p['nombre']} (₡{p['valor_unitario']:,.0f} c/u)"
-                for p in productos_validos
-            ]
-            producto_string = " | ".join(resumen_productos)
+        resumen_productos = [
+            f"{p['cantidad']} x {p['nombre']} (₡{p['valor_unitario']:,.0f} c/u)"
+            for p in productos_validos
+        ]
+        producto_string = " | ".join(resumen_productos)
 
-            if pedido_duplicado(cliente, producto_string, fecha_pedido):
-                st.error("⚠️ Este pedido exacto ya fue registrado hoy.")
-                return
+        if pedido_duplicado(cliente, producto_string, fecha_pedido):
+            st.error("⚠️ Este pedido ya se encuentra registrado con la misma fecha de hoy.")
+            return
 
-            estado_pago = "Cancelado" if saldo == 0 else ("Abonado" if abono > 0 else "Pendiente")
-            zona = clasificar_zona(provincia) if provincia.strip() != "" else "Pendiente"
+        estado_pago = "Cancelado" if saldo == 0 else ("Abonado" if abono > 0 else "Pendiente")
+        zona = clasificar_zona(provincia) if provincia.strip() != "" else "Pendiente"
 
-            rutas_imagenes = []
-            if imagenes_tela:
-                carpeta = "assets/telas"
-                os.makedirs(carpeta, exist_ok=True)
-                for imagen in imagenes_tela:
-                    extension = imagen.name.split(".")[-1]
-                    nombre_archivo = f"{uuid.uuid4()}.{extension}"
-                    ruta_imagen = os.path.join(carpeta, nombre_archivo)
-                    with open(ruta_imagen, "wb") as f:
-                        f.write(imagen.getbuffer())
-                    rutas_imagenes.append(ruta_imagen)
+        rutas_imagenes = []
+        if imagenes_tela:
+            carpeta = "assets/telas"
+            os.makedirs(carpeta, exist_ok=True)
+            for imagen in imagenes_tela:
+                extension = imagen.name.split(".")[-1]
+                nombre_archivo = f"{uuid.uuid4()}.{extension}"
+                ruta_imagen = os.path.join(carpeta, nombre_archivo)
+                with open(ruta_imagen, "wb") as f:
+                    f.write(imagen.getbuffer())
+                rutas_imagenes.append(ruta_imagen)
 
-            rutas_guardadas = ";".join(rutas_imagenes) if rutas_imagenes else ""
+        rutas_guardadas = ";".join(rutas_imagenes) if rutas_imagenes else ""
 
-            nuevo_pedido = Pedido(
-                cliente=cliente, telefono=telefono, identificacion=identificacion,
-                producto=producto_string, cantidad=cantidad_total, valor_total=valor_total,
-                abono=abono, saldo=saldo, estado_pago=estado_pago, sinpe=sinpe,
-                fecha_pedido=fecha_pedido, fecha_entrega=fecha_entrega, prioridad=prioridad,
-                provincia=provincia, canton=canton, distrito=distrito, zona=zona,
-                direccion=direccion, estado="Pendiente", tela_personalizada=tela_personalizada,
-                imagen_tela=rutas_guardadas, descripcion=descripcion
-            )
+        nuevo_pedido = Pedido(
+            cliente=cliente, telefono=telefono, identificacion=identificacion,
+            producto=producto_string, cantidad=cantidad_total, valor_total=valor_total,
+            abono=abono, saldo=saldo, estado_pago=estado_pago, sinpe=sinpe,
+            fecha_pedido=fecha_pedido, fecha_entrega=fecha_entrega, prioridad=prioridad,
+            provincia=provincia, canton=canton, distrito=distrito, zona=zona,
+            direccion=direccion, estado="Pendiente", tela_personalizada=tela_personalizada,
+            imagen_tela=rutas_guardadas, descripcion=descripcion
+        )
 
-            try:
-                session.add(nuevo_pedido)
-                session.commit()
-                st.success("✅ ¡Pedido guardado exitosamente en el sistema!")
-                st.rerun()
-            except Exception as e:
-                session.rollback()
-                st.error(f"Error crítico al guardar en base de datos: {e}")
+        try:
+            session.add(nuevo_pedido)
+            session.commit()
+            st.success("🎉 ¡ÉXITO! El nuevo pedido se registró correctamente en el sistema.")
+            st.balloons()
+            st.rerun()
+        except Exception as e:
+            session.rollback()
+            st.error(f"Error crítico al guardar en la base de datos: {e}")
 
 
 def mostrar_pedidos_registrados():
@@ -356,7 +358,7 @@ def mostrar_pedidos_registrados():
             if st.button("Actualizar Estado", key=f"guardar_estado_{pedido.id}"):
                 pedido.estado = nuevo_estado
                 session.commit()
-                st.toast("¡Estado del pedido actualizado!")
+                st.toast(f"✅ Estado del pedido #{pedido.id} modificado correctamente.")
                 st.rerun()
 
             if st.session_state.get("rol") == "Administrador":
@@ -379,6 +381,7 @@ def mostrar_pedidos_registrados():
                     # --- EDICIÓN DE DESCRIPCIÓN ---
                     nueva_descripcion = st.text_area("Notas Especiales / Descripción", value=desc_actual or "", key=f"desc_edit_{pedido.id}")
 
+                    # Este botón procesa de forma segura toda la información modificada
                     if st.button("Confirmar Cambios", key=f"actualizar_{pedido.id}"):
                         pedido.cliente = edit_cliente
                         pedido.identificacion = edit_identificacion
@@ -397,12 +400,13 @@ def mostrar_pedidos_registrados():
                         pedido.zona = clasificar_zona(nueva_provincia) if nueva_provincia else "Pendiente"
                         
                         session.commit()
-                        st.toast("¡Toda la información del pedido y envío ha sido modificada!")
+                        st.toast(f"✅ ¡Los cambios del pedido #{pedido.id} se guardaron correctamente!")
                         st.rerun()
 
                 if st.button("🗑️ Eliminar Registro", key=f"eliminar_{pedido.id}"):
                     session.delete(pedido)
                     session.commit()
+                    st.toast("🗑️ Pedido eliminado correctamente.")
                     st.rerun()
         st.divider()
 
@@ -449,5 +453,5 @@ def editar_pedido():
             pedido.estado = "Tela pendiente"
 
         session.commit()
-        st.success("✅ Estatus de telas sincronizado.")
+        st.toast("✅ Suministro de telas actualizado con éxito.")
         st.rerun()
