@@ -4,6 +4,7 @@ from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Float
 from sqlalchemy import Date
+from sqlalchemy import Text  # <-- Agregado para permitir descripciones largas
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -13,11 +14,8 @@ from sqlalchemy.orm import sessionmaker
 # =====================================================
 
 engine = create_engine(
-
     "sqlite:///database/cocoya.db",
-
     echo=False
-
 )
 
 # =====================================================
@@ -84,6 +82,13 @@ class Pedido(Base):
     tela_personalizada = Column(String)
 
     imagen_tela = Column(String)
+
+    # =================================================
+    # DETALLES ADICIONALES
+    # =================================================
+
+    descripcion = Column(Text)  # <-- CORRECCIÓN: Aquí mapeamos la nueva columna en Python
+
 
 # =====================================================
 # CREAR TABLAS
