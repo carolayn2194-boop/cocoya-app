@@ -80,89 +80,80 @@ def mostrar_pedidos():
 
     st.divider()
 
-    # Inicializamos estados para controlar los clics reales del mouse de forma estricta
-    if "ejecutar_guardado" not in st.session_state:
-        st.session_state.ejecutar_guardado = False
+    # Usamos un contenedor normal en vez de st.form para deshabilitar por completo el "Enter" de HTML
+    st.subheader("Información del Cliente")
+    col1, col2 = st.columns(2)
 
-    # IMPORTANTE: Eliminamos 'clear_on_submit=True' para que si falta algo, el formulario NO se borre solo
-    with st.form("formulario_pedido"):
-        st.subheader("Información del Cliente")
-        col1, col2 = st.columns(2)
+    with col1:
+        cliente = st.text_input("Nombre del Cliente", key="new_cliente")
+        telefono = st.text_input("Teléfono", key="new_telefono")
+        identificacion = st.text_input("Identificación (Opcional)", key="new_identificacion")
 
-        with col1:
-            cliente = st.text_input("Nombre del Cliente")
-            telefono = st.text_input("Teléfono")
-            identificacion = st.text_input("Identificación (Opcional)")
+    with col2:
+        cantidad_productos = st.number_input(
+            "¿Cuántos productos desea agregar?",
+            min_value=1, max_value=10, value=1, step=1, key="new_cant_prod"
+        )
 
-        with col2:
-            cantidad_productos = st.number_input(
-                "¿Cuántos productos desea agregar?",
-                min_value=1, max_value=10, value=1, step=1
-            )
+    st.divider()
+    st.subheader("Productos del Pedido")
 
-        st.divider()
-        st.subheader("Productos del Pedido")
+    productos = []
+    valor_total = 0
+    cantidad_total = 0
 
-        productos = []
-        valor_total = 0
-        cantidad_total = 0
+    for i in range(int(cantidad_productos)):
+        st.markdown(f"### Producto {i + 1}")
+        col_prod1, col_prod2, col_prod3 = st.columns(3)
 
-        for i in range(cantidad_productos):
-            st.markdown(f"### Producto {i + 1}")
-            col_prod1, col_prod2, col_prod3 = st.columns(3)
+        with col_prod1:
+            nombre_producto = st.text_input(f"Nombre del producto {i + 1}", key=f"producto_{i}")
+        with col_prod2:
+            cantidad_producto = st.number_input(f"Cantidad {i + 1}", min_value=1, step=1, key=f"cantidad_{i}")
+        with col_prod3:
+            valor_producto = st.number_input(f"Valor unitario producto {i + 1} ₡", min_value=0.0, step=1000.0, key=f"valor_producto_{i}")
 
-            with col_prod1:
-                nombre_producto = st.text_input(f"Nombre del producto {i + 1}", key=f"producto_{i}")
-            with col_prod2:
-                cantidad_producto = st.number_input(f"Cantidad {i + 1}", min_value=1, step=1, key=f"cantidad_{i}")
-            with col_prod3:
-                valor_producto = st.number_input(f"Valor unitario producto {i + 1} ₡", min_value=0.0, step=1000.0, key=f"valor_producto_{i}")
+        subtotal_producto = cantidad_producto * valor_producto
+        productos.append({
+            "nombre": nombre_producto,
+            "cantidad": cantidad_producto,
+            "valor_unitario": valor_producto,
+            "subtotal": subtotal_producto
+        })
 
-            subtotal_producto = cantidad_producto * valor_producto
-            productos.append({
-                "nombre": nombre_producto,
-                "cantidad": cantidad_producto,
-                "valor_unitario": valor_producto,
-                "subtotal": subtotal_producto
-            })
+        valor_total += subtotal_producto
+        cantidad_total += cantidad_producto
 
-            valor_total += subtotal_producto
-            cantidad_total += cantidad_producto
+    st.success(f"Valor total acumulado: ₡{valor_total:,.0f}")
+    st.divider()
 
-        st.success(f"Valor total acumulado: ₡{valor_total:,.0f}")
-        st.divider()
+    st.subheader("Telas Personalizadas")
+    tela_personalizada = st.selectbox("¿Lleva tela personalizada?", ["No", "Sí"], key="new_tela_p")
+    imagenes_tela = st.file_uploader("Subir imágenes de tela", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="new_imagenes")
 
-        st.subheader("Telas Personalizadas")
-        tela_personalizada = st.selectbox("¿Lleva tela personalizada?", ["No", "Sí"])
-        imagenes_tela = st.file_uploader("Subir imágenes de tela", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+    st.divider()
+    st.subheader("Información de Pago")
+    abono = st.number_input("Abono Inicial ₡", min_value=0.0, step=1000.0, key="new_abono")
+    sinpe = st.selectbox("SINPE Verificado", ["No", "Sí"], key="new_sinpe")
+    
+    saldo = max(0.0, valor_total - abono)
 
-        st.divider()
-        st.subheader("Información de Pago")
-        abono = st.number_input("Abono Inicial ₡", min_value=0.0, step=1000.0)
-        sinpe = st.selectbox("SINPE Verificado", ["No", "Sí"])
-        
-        saldo = max(0.0, valor_total - abono)
+    st.divider()
+    st.subheader("Dirección de Envío")
+    provincias_lista = ["", "San José", "Alajuela", "Cartago", "Heredia", "Guanacaste", "Puntarenas", "Limón"]
+    provincia = st.selectbox("Provincia", provincias_lista, key="new_provincia")
+    canton = st.text_input("Cantón", key="new_canton")
+    distrito = st.text_input("Distrito", key="new_distrito")
+    direccion = st.text_area("Dirección Completa", key="new_direccion")
 
-        st.divider()
-        st.subheader("Dirección de Envío")
-        provincias_lista = ["", "San José", "Alajuela", "Cartago", "Heredia", "Guanacaste", "Puntarenas", "Limón"]
-        provincia = st.selectbox("Provincia", provincias_lista)
-        canton = st.text_input("Cantón")
-        distrito = st.text_input("Distrito")
-        direccion = st.text_area("Dirección Completa")
+    st.divider()
+    st.subheader("📝 Detalles Adicionales")
+    descripcion = st.text_area("Descripción, especificaciones o notas del pedido", key="new_desc")
 
-        st.divider()
-        st.subheader("📝 Detalles Adicionales")
-        descripcion = st.text_area("Descripción, especificaciones o notas del pedido")
+    st.divider()
 
-        # El botón del formulario cambia este estado específico al hacer clic real
-        if st.form_submit_button("💥 GUARDAR PEDIDO"):
-            st.session_state.ejecutar_guardado = True
-
-    # El procesamiento ocurre AFUERA del bloque del formulario para mantener los inputs intactos si hay errores
-    if st.session_state.ejecutar_guardado:
-        st.session_state.ejecutar_guardado = False  # Reseteo inmediato
-
+    # 🚨 AL ESTAR FUERA DE UN FORM, EL ENTER QUEDA 100% INHABILITADO. SOLO FUNCIONA CON UN CLIC REAL DEL MOUSE.
+    if st.button("💥 GUARDAR PEDIDO", type="primary", use_container_width=True):
         faltantes = []
         if not cliente.strip(): faltantes.append("Cliente")
         if not telefono.strip(): faltantes.append("Teléfono")
@@ -175,7 +166,7 @@ def mostrar_pedidos():
 
         if len(faltantes) > 0:
             st.error("⚠️ ERROR: No se guardó nada. Faltan estos campos obligatorios: " + ", ".join(faltantes))
-            return  # Frena el guardado, pero los datos siguen escritos en los inputs superiores
+            return  # Conserva todo lo digitado en pantalla sin borrar nada
 
         resumen_productos = [
             f"{p['cantidad']} x {p['nombre']} (₡{p['valor_unitario']:,.0f} c/u)"
@@ -217,7 +208,7 @@ def mostrar_pedidos():
         try:
             session.add(nuevo_pedido)
             session.commit()
-            st.success("🎉 ¡ÉXITO! El nuevo pedido se registró correctamente en el sistema.")
+            st.success("🎉 ¡ÉXITO! El nuevo pedido se registró correctamente en la base de datos.")
             st.balloons()
             st.rerun()
         except Exception as e:
@@ -358,7 +349,7 @@ def mostrar_pedidos_registrados():
             if st.button("Actualizar Estado", key=f"guardar_estado_{pedido.id}"):
                 pedido.estado = nuevo_estado
                 session.commit()
-                st.toast(f"✅ Estado del pedido #{pedido.id} modificado correctamente.")
+                st.toast(f"✅ ¡Alerta!: Estado del pedido #{pedido.id} modificado y guardado con éxito.")
                 st.rerun()
 
             if st.session_state.get("rol") == "Administrador":
@@ -381,7 +372,6 @@ def mostrar_pedidos_registrados():
                     # --- EDICIÓN DE DESCRIPCIÓN ---
                     nueva_descripcion = st.text_area("Notas Especiales / Descripción", value=desc_actual or "", key=f"desc_edit_{pedido.id}")
 
-                    # Este botón procesa de forma segura toda la información modificada
                     if st.button("Confirmar Cambios", key=f"actualizar_{pedido.id}"):
                         pedido.cliente = edit_cliente
                         pedido.identificacion = edit_identificacion
@@ -389,7 +379,6 @@ def mostrar_pedidos_registrados():
                         pedido.valor_total = nuevo_valor
                         pedido.abono = nuevo_abono
                         
-                        # Guardado de la información completa del envío
                         pedido.provincia = nueva_provincia
                         pedido.canton = edit_canton
                         pedido.distrito = edit_distrito
@@ -400,13 +389,13 @@ def mostrar_pedidos_registrados():
                         pedido.zona = clasificar_zona(nueva_provincia) if nueva_provincia else "Pendiente"
                         
                         session.commit()
-                        st.toast(f"✅ ¡Los cambios del pedido #{pedido.id} se guardaron correctamente!")
+                        st.toast(f"✅ ¡Alerta!: Toda la información y envío del pedido #{pedido.id} han sido actualizados.")
                         st.rerun()
 
                 if st.button("🗑️ Eliminar Registro", key=f"eliminar_{pedido.id}"):
                     session.delete(pedido)
                     session.commit()
-                    st.toast("🗑️ Pedido eliminado correctamente.")
+                    st.toast("🗑️ ¡Alerta!: Pedido eliminado de la base de datos.")
                     st.rerun()
         st.divider()
 
@@ -453,5 +442,5 @@ def editar_pedido():
             pedido.estado = "Tela pendiente"
 
         session.commit()
-        st.toast("✅ Suministro de telas actualizado con éxito.")
+        st.toast("✅ ¡Alerta!: Estatus del inventario de telas guardado.")
         st.rerun()
